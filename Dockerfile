@@ -1,6 +1,6 @@
 FROM node:20-bookworm-slim
 
-# Install system dependencies for media processing
+# Install system dependencies for media processing + native module compilation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     imagemagick \
@@ -9,6 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libgif-dev \
     librsvg2-dev \
+    build-essential \
+    python3 \
+    make \
+    g++ \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
