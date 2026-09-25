@@ -47,6 +47,19 @@
     "ytdl-core": "latest",
     "stream-to-buffer": "latest",
     "ab-downloader": "latest",
-    "@vreden/youtube_scraper": "latest"
+    "@vreden/youtube_scraper": "latest",
+    "awesome-phonenumber": "^5.0.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "linkifyjs": "^4.1.3",
+    "file-type": "^16.5.4",
+    "google-it": "^1.6.2",
+    "youtubei.js": "^10.0.0",
+    "pastebin-scraper": "^1.0.0",
+    "g-i-s": "^0.1.4",
+    "canvas": "^2.11.2",
+    "sharp": "^0.33.5",
+    "api-dylx": "^1.0.0",
+    "@adiwajshing/keyed-db": "^0.2.4"
   }
 }
