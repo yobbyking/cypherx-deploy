@@ -63,11 +63,11 @@ function startBot() {
     broadcast({ type: 'exit', text, code });
     console.log('[WRAPPER] Bot exited:', code, signal);
     
-    // Auto-restart after 5s
+    // Auto-restart after 10s (longer delay to prevent spam on persistent errors)
     setTimeout(() => {
       console.log('[WRAPPER] Auto-restarting bot...');
       startBot();
-    }, 5000);
+    }, 10000);
   });
 }
 
