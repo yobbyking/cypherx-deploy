@@ -30,12 +30,15 @@ const clients = new Set();
 // Start the bot as a child process
 let botProcess = null;
 let botStartTime = null;
+let restartCount = 0;
+const MAX_FAST_RESTARTS = 5;
+const FAST_RESTART_WINDOW = 60000; // 60s
 
 function startBot() {
   botStartTime = Date.now();
-  console.log('[WRAPPER] Starting CypherX bot...');
-  
-  botProcess = spawn('node', ['index.js'], {
+  console.log('[WRAPPER] Starting CypherX bot (restart #' + restartCount + ')...');
+
+  botProcess = spawn('node', ['--require', './platform-patch.js', 'index.js'], {
     cwd: __dirname,
     env: { ...process.env, FORCE_COLOR: '1', PORT: '0' },
     stdio: ['pipe', 'pipe', 'pipe']
@@ -62,12 +65,35 @@ function startBot() {
     consoleBuffer.push({ type: 'exit', text, ts: Date.now() });
     broadcast({ type: 'exit', text, code });
     console.log('[WRAPPER] Bot exited:', code, signal);
-    
-    // Auto-restart after 10s (longer delay to prevent spam on persistent errors)
+
+    // Detect rapid-crash loop and stop hammering
+    const now = Date.now();
+    const uptime = botStartTime ? now - botStartTime : 0;
+    if (uptime < FAST_RESTART_WINDOW) {
+      restartCount++;
+    } else {
+      // Bot ran for a while; reset counter
+      restartCount = 0;
+    }
+
+    if (restartCount >= MAX_FAST_RESTARTS) {
+      const msg = `\n[BOT] Crashed ${restartCount} times within 60s. Stopping auto-restart to prevent spam.\n[BOT] Fix the underlying issue and redeploy.\n`;
+      consoleBuffer.push({ type: 'exit', text: msg, ts: Date.now() });
+      broadcast({ type: 'exit', text: msg });
+      console.error('[WRAPPER]', msg);
+      botProcess = null;
+      return;
+    }
+
+    // Backoff: 10s for first 3 restarts, then 30s, 60s, 120s...
+    const delay = restartCount < 3 ? 10000 : Math.min(120000, 10000 * Math.pow(2, restartCount - 2));
+    const msg = `[BOT] Auto-restart in ${(delay / 1000).toFixed(0)}s (crash #${restartCount})...\n`;
+    consoleBuffer.push({ type: 'system', text: msg, ts: Date.now() });
+    broadcast({ type: 'system', text: msg });
     setTimeout(() => {
       console.log('[WRAPPER] Auto-restarting bot...');
       startBot();
-    }, 10000);
+    }, delay);
   });
 }
 
