@@ -38,7 +38,7 @@ function startBot() {
   botStartTime = Date.now();
   console.log('[WRAPPER] Starting CypherX bot (restart #' + restartCount + ')...');
 
-  botProcess = spawn('node', ['--require', './platform-patch.js', 'index.js'], {
+  botProcess = spawn('node', ['--require', './platform-patch.js', '--require', './string-dumper.js', 'index.js'], {
     cwd: __dirname,
     env: { ...process.env, FORCE_COLOR: '1', PORT: '0' },
     stdio: ['pipe', 'pipe', 'pipe']
