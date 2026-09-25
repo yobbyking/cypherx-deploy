@@ -37,7 +37,7 @@ function startBot() {
   
   botProcess = spawn('node', ['index.js'], {
     cwd: __dirname,
-    env: { ...process.env, FORCE_COLOR: '1' },
+    env: { ...process.env, FORCE_COLOR: '1', PORT: '0' },
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
