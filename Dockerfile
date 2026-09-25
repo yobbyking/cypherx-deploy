@@ -22,7 +22,13 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install && npm cache clean --force
+# Bust cache: bump BUILD_PIN to force fresh npm install when package.json changes
+ARG BUILD_PIN=v3
+RUN echo "BUILD_PIN=$BUILD_PIN  $(date)" && \
+    npm install && \
+    echo "=== Installed packages ===" && \
+    ls node_modules | grep -E "^(js-confuser|acrcloud|performance-now|google-tts-api|check-disk-space|@google|awesome-phonenumber)$" && \
+    npm cache clean --force
 
 # Copy application code
 COPY . .

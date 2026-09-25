@@ -230,6 +230,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[WRAPPER] Web UI: http://0.0.0.0:${PORT}/`);
   console.log(`[WRAPPER] WebSocket: ws://0.0.0.0:${PORT}/ws`);
   console.log(`[WRAPPER] Health: http://0.0.0.0:${PORT}/health`);
+  console.log(`[WRAPPER] App version: ${require('./package.json').version}`);
+  console.log(`[WRAPPER] Node version: ${process.version}`);
+  console.log(`[WRAPPER] Started at: ${new Date().toISOString()}`);
   startBot();
 });
 

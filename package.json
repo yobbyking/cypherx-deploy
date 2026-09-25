@@ -1,6 +1,6 @@
 {
   "name": "cypherx-deploy",
-  "version": "1.8.4",
+  "version": "1.9.0",
   "description": "CypherX — WhatsApp Bot with live web console",
   "main": "server.js",
   "type": "commonjs",
