@@ -6,130 +6,188 @@
  * obfuscated "Platform Linux is not allowed" check and find what
  * detection method it's actually using.
  *
- * Filter: only print strings containing keywords related to platform
- * detection.
- *
  * Loaded via `node --require ./string-dumper.js index.js` (TEMPORARY — for
  * the next deploy only, to diagnose the platform check).
  */
 
 'use strict';
 
-const KEYWORDS = ['linux', 'platform', 'is not allowed', 'crashing', 'win32', 'darwin', '/etc/', '/proc/', 'uname', 'windows', 'process.platform', 'os.platform', 'os.type'];
+// Keywords to watch for
+const KEYWORDS = ['linux', 'is not allowed', 'crashing', 'win32', 'darwin', '/etc/', '/proc/', 'uname', 'windows'];
+// Also include 'platform' but be more careful — only dump strings that have platform + something else suspicious
+
+function isDumperOutput(s) {
+  // Don't recurse on our own output
+  return typeof s === 'string' && s.includes('STRING-DUMPER');
+}
 
 function shouldDump(s) {
   if (typeof s !== 'string') return false;
   if (s.length < 3 || s.length > 500) return false;
+  if (isDumperOutput(s)) return false; // prevent recursion
   const lower = s.toLowerCase();
+  // For "platform", require another keyword too (avoid spam)
+  if (lower.includes('platform')) {
+    return KEYWORDS.some(k => lower.includes(k)) || lower.includes('os.') || lower.includes('process.');
+  }
   return KEYWORDS.some(k => lower.includes(k));
 }
 
-// ---- Patch console.log to scan strings before printing ----
-const origLog = console.log;
-const origWarn = console.warn;
-const origErr = console.error;
+// Use a flag to track when we're writing our own output, so we don't recurse
+let inDumper = false;
 
-function wrap(fn, tag) {
-  return function (...args) {
-    for (const a of args) {
-      if (typeof a === 'string' && shouldDump(a)) {
-        origWarn(`[STRING-DUMPER ${tag}] ${JSON.stringify(a)}`);
-      } else if (a && a.stack && shouldDump(a.stack)) {
-        origWarn(`[STRING-DUMPER ${tag}-stack] ${a.stack.split('\n').slice(0, 3).join(' | ')}`);
-      }
-    }
-    return fn.apply(this, args);
-  };
+function safeDump(tag, text) {
+  if (inDumper) return;
+  inDumper = true;
+  try {
+    // Use the ORIGINAL stderr write, not our patched one
+    const buf = `\n[STRING-DUMPER ${tag}] ${JSON.stringify(text)}\n`;
+    origStderrWrite(buf);
+  } finally {
+    inDumper = false;
+  }
 }
 
-console.log = wrap(origLog, 'log');
-console.warn = wrap(origWarn, 'warn');
-console.error = wrap(origErr, 'err');
+// ---- Capture originals ----
+const origLog = console.log.bind(console);
+const origWarn = console.warn.bind(console);
+const origErr = console.error.bind(console);
+const origStdoutWrite = process.stdout.write.bind(process.stdout);
+const origStderrWrite = process.stderr.write.bind(process.stderr);
 
-// ---- Patch process.stdout.write to scan strings before writing ----
-const origWrite = process.stdout.write.bind(process.stdout);
+// ---- Patch console methods (call originals directly, no recursion) ----
+console.log = function (...args) {
+  for (const a of args) {
+    if (typeof a === 'string' && shouldDump(a)) safeDump('log', a);
+  }
+  return origLog(...args);
+};
+console.warn = function (...args) {
+  for (const a of args) {
+    if (typeof a === 'string' && shouldDump(a)) safeDump('warn', a);
+  }
+  return origWarn(...args);
+};
+console.error = function (...args) {
+  for (const a of args) {
+    if (typeof a === 'string' && shouldDump(a)) safeDump('err', a);
+  }
+  return origErr(...args);
+};
+
+// ---- Patch stdout/stderr writes ----
 process.stdout.write = function (data, ...rest) {
-  if (typeof data === 'string' && shouldDump(data)) {
-    origWarn(`[STRING-DUMPER stdout] ${JSON.stringify(data.slice(0, 500))}`);
-  }
-  return origWrite(data, ...rest);
+  if (typeof data === 'string' && shouldDump(data)) safeDump('stdout', data);
+  return origStdoutWrite(data, ...rest);
 };
-
-const origErrWrite = process.stderr.write.bind(process.stderr);
 process.stderr.write = function (data, ...rest) {
-  if (typeof data === 'string' && shouldDump(data)) {
-    origErr(`[STRING-DUMPER stderr] ${JSON.stringify(data.slice(0, 500))}`);
-  }
-  return origErrWrite(data, ...rest);
+  if (typeof data === 'string' && shouldDump(data)) safeDump('stderr', data);
+  return origStderrWrite(data, ...rest);
 };
 
-// ---- Patch String.fromCharCode to intercept string construction ----
-// Many obfuscators use String.fromCharCode(n, n, n, ...) to build strings
+// ---- Patch String.fromCharCode ----
 const origFromCharCode = String.fromCharCode;
-let fromCharCodeDumped = 0;
 String.fromCharCode = function (...codes) {
   const result = origFromCharCode.apply(String, codes);
-  if (shouldDump(result) && fromCharCodeDumped < 50) {
-    fromCharCodeDumped++;
-    origWarn(`[STRING-DUMPER fromCharCode] ${JSON.stringify(result)}`);
-  }
+  if (shouldDump(result)) safeDump('fromCharCode', result);
   return result;
 };
 
 // ---- Patch String.fromCodePoint ----
 const origFromCodePoint = String.fromCodePoint;
-let fromCodePointDumped = 0;
 String.fromCodePoint = function (...codes) {
   const result = origFromCodePoint.apply(String, codes);
-  if (shouldDump(result) && fromCodePointDumped < 50) {
-    fromCodePointDumped++;
-    origWarn(`[STRING-DUMPER fromCodePoint] ${JSON.stringify(result)}`);
-  }
+  if (shouldDump(result)) safeDump('fromCodePoint', result);
   return result;
 };
 
-// ---- Patch Buffer.from to intercept encoded strings ----
+// ---- Patch Buffer.from (only when used to decode strings) ----
 const origBufferFrom = Buffer.from;
-let bufferDumped = 0;
 Buffer.from = function (...args) {
   const result = origBufferFrom.apply(Buffer, args);
-  if (bufferDumped < 50) {
-    let s;
-    try { s = result.toString('utf8'); } catch (e) { s = ''; }
-    if (shouldDump(s)) {
-      bufferDumped++;
-      origWarn(`[STRING-DUMPER Buffer.from] ${JSON.stringify(s.slice(0, 500))}`);
-    }
-  }
+  try {
+    const s = result.toString('utf8');
+    if (shouldDump(s)) safeDump('Buffer.from', s);
+  } catch (e) {}
   return result;
 };
 
-// ---- Patch eval so we can see strings from dynamic code ----
-// (some obfuscators use eval-based string hiding)
+// ---- Patch eval ----
 const origEval = global.eval;
-let evalDumped = 0;
 global.eval = function (code) {
-  if (typeof code === 'string' && shouldDump(code) && evalDumped < 20) {
-    evalDumped++;
-    origWarn(`[STRING-DUMPER eval] ${JSON.stringify(code.slice(0, 500))}`);
-  }
+  if (typeof code === 'string' && shouldDump(code)) safeDump('eval', code);
   return origEval.call(this, code);
 };
 
-// ---- Also watch what `os.*` and `process.*` return when accessed ----
-// Hook getter access to log when the bot reads process.platform, os.platform(), etc.
+// ---- Patch os methods to log what they return (use safeDump to avoid recursion) ----
 try {
   const os = require('os');
-  for (const fn of ['platform', 'type', 'release', 'hostname', 'homedir', 'userInfo', 'arch', 'endianness']) {
+  // Wrap each os method
+  ['platform', 'type', 'release', 'hostname', 'homedir', 'arch', 'endianness'].forEach(fn => {
     const orig = os[fn];
     if (typeof orig === 'function') {
       os[fn] = function (...args) {
         const result = orig.apply(this, args);
-        origWarn(`[STRING-DUMPER os.${fn}()] returned ${JSON.stringify(result)}`);
+        // Only log when result is a non-empty string and looks relevant
+        if (typeof result === 'string' && result.length > 0 && result.length < 100) {
+          // Avoid logging 'win32' over and over (it's our own patch result)
+          if (result !== 'win32' && result !== 'Windows_NT') {
+            safeDump(`os.${fn}()`, `returned: ${JSON.stringify(result)}`);
+          }
+        }
         return result;
       };
     }
-  }
+  });
+  // os.userInfo returns an object
+  const origUserInfo = os.userInfo;
+  os.userInfo = function (...args) {
+    const result = origUserInfo.apply(this, args);
+    try {
+      const s = JSON.stringify(result);
+      if (shouldDump(s)) safeDump('os.userInfo()', s);
+    } catch (e) {}
+    return result;
+  };
 } catch (e) {}
 
-console.warn('[STRING-DUMPER] Installed. Will log any strings containing platform-related keywords.');
+// ---- Patch child_process.execSync / execFileSync to see if the bot runs uname ----
+try {
+  const cp = require('child_process');
+  const origExecSync = cp.execSync;
+  cp.execSync = function (cmd, opts) {
+    if (typeof cmd === 'string' && (cmd.includes('uname') || cmd.includes('/etc/') || cmd.includes('/proc/'))) {
+      safeDump('execSync', `cmd: ${cmd}`);
+    }
+    return origExecSync.apply(this, arguments);
+  };
+  const origExecFileSync = cp.execFileSync;
+  cp.execFileSync = function (file, args, opts) {
+    const argStr = Array.isArray(args) ? args.join(' ') : '';
+    if (typeof file === 'string' && (file.includes('uname') || file.includes('/etc/') || file.includes('/proc/'))) {
+      safeDump('execFileSync', `file: ${file} args: ${argStr}`);
+    }
+    return origExecFileSync.apply(this, arguments);
+  };
+} catch (e) {}
+
+// ---- Patch fs.readFileSync to see if the bot reads /etc/os-release or /proc/version ----
+try {
+  const fs = require('fs');
+  const origReadFileSync = fs.readFileSync;
+  fs.readFileSync = function (p, opts) {
+    if (typeof p === 'string' && (p.includes('/etc/') || p.includes('/proc/'))) {
+      safeDump('readFileSync', `path: ${p}`);
+    }
+    return origReadFileSync.apply(this, arguments);
+  };
+  const origExistsSync = fs.existsSync;
+  fs.existsSync = function (p) {
+    if (typeof p === 'string' && (p.includes('/etc/') || p.includes('/proc/'))) {
+      safeDump('existsSync', `path: ${p} -> (will check)`);
+    }
+    return origExistsSync.apply(this, arguments);
+  };
+} catch (e) {}
+
+safeDump('init', 'String dumper installed. Watching for platform-detection calls.');
